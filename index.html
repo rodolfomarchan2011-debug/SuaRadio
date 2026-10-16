@@ -75,13 +75,21 @@
     <small><b>Online (fixo):</b> toca em qualquer celular. Pra adicionar, coloque MP3 na pasta <b>musicas/</b> + push.</small>
     <div id="onlineList" style="margin:8px 0"><small>Carregando MP3s online...</small></div>
     <hr style="border:0;border-top:1px solid #333">
-    <small><b>Temporário (só neste aparelho):</b> selecione aqui, some junto com os de cima.</small><br><br>
+    <small><b>Temporário (só neste aparelho, ilimitado):</b> pode adicionar quantas vezes quiser, vai somando.</small><br><br>
     <input type="file" id="localFiles" accept="audio/*" multiple>
+    <div style="margin-top:6px"><button class="sec" onclick="limparTemporarios()">🗑️ Limpar temporários</button> <small id="tempCount"></small></div>
     <div style="margin-top:8px">
       <label><input type="radio" name="modoLocal" value="sequencial" checked> Sequencial</label>
       <label><input type="radio" name="modoLocal" value="aleatorio"> Aleatório</label>
     </div>
     <div id="localList"><small>Nenhum arquivo ainda.</small></div>
+    <div style="margin-top:10px;background:#0f0f14;border-radius:8px;padding:10px">
+      <b>🔊 Volumes</b><br>
+      <label><small>🎵 Meus áudios: <span id="volLocalVal">100</span>%</small></label>
+      <input type="range" id="volLocal" min="0" max="100" value="100" style="width:100%" oninput="ajustarVolumes()">
+      <label><small>▶️ Playlist YouTube: <span id="volYTVal">80</span>%</small></label>
+      <input type="range" id="volYT" min="0" max="100" value="80" style="width:100%" oninput="ajustarVolumes()">
+    </div>
     <audio id="localPlayer" controls style="width:100%;margin-top:8px"></audio>
   </div>
 </div>
@@ -183,7 +191,7 @@ function criarPlayer(videoId) {
     videoId: videoId || 'K44oVjSPbbk',
     playerVars: { rel: 0, autoplay: 0 },
     events: {
-      'onReady': () => { ytReady = true; log('✅ Player YouTube pronto. Pode apertar Iniciar.'); setStatus('✅ Player pronto. Aperte Iniciar rádio.'); },
+      'onReady': () => { ytReady = true; log('✅ Player YouTube pronto. Pode apertar Iniciar.'); setStatus('✅ Player pronto. Aperte Iniciar rádio.'); try{ajustarVolumes();}catch(e){} },
       'onStateChange': onYTState,
       'onError': (e)=>{ log('❌ Erro YT: '+e.data+' (150/101 = dono bloqueou embed, troque o vídeo).'); }
     }
@@ -247,14 +255,36 @@ function deveIntercalar() {
   return false;
 }
 
-// ===== Locais =====
+// ===== Locais (ilimitado, soma a cada escolha) =====
+function renderLocais() {
+  document.getElementById('localList').innerHTML = locais.length ? '<ul>' + locais.map((l,i)=>`<li>🎵 ${i+1}. ${l.nome} <a href="#" onclick="removerTemp(${i});return false" style="color:#f87171">x</a></li>`).join('') + '</ul>' : '<small>Nenhum arquivo ainda.</small>';
+  document.getElementById('tempCount').textContent = locais.length ? `${locais.length} temporários` : '';
+}
+function removerTemp(i){ locais.splice(i,1); if(localIndex>locais.length) localIndex=0; renderLocais(); renderFila(); }
+function limparTemporarios(){ locais=[]; localIndex=0; document.getElementById('localFiles').value=''; renderLocais(); renderFila(); log('🗑️ Temporários limpos.'); }
 document.getElementById('localFiles').addEventListener('change', (ev) => {
-  locais = [...ev.target.files].map(f => ({ nome: f.name, url: URL.createObjectURL(f) }));
-  localIndex = 0;
-  document.getElementById('localList').innerHTML = '<ul>' + locais.map(l=>`<li>🎵 ${l.nome}</li>`).join('') + '</ul>';
-  log(`✅ ${locais.length} arquivos locais prontos.`);
+  const novos = [...ev.target.files].map(f => ({ nome: f.name, url: URL.createObjectURL(f) }));
+  locais = [...locais, ...novos];
+  ev.target.value = '';
+  renderLocais();
+  log(`✅ +${novos.length} adicionados (total temp: ${locais.length}).`);
   renderFila();
 });
+
+// ===== Volumes separados =====
+function ajustarVolumes() {
+  const vL = parseInt(document.getElementById('volLocal').value || '100');
+  const vY = parseInt(document.getElementById('volYT').value || '80');
+  document.getElementById('volLocalVal').textContent = vL;
+  document.getElementById('volYTVal').textContent = vY;
+  try { localAudio.volume = vL/100; } catch(e){}
+  try { if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(vY); } catch(e){}
+  try { localStorage.setItem('sr_volL', vL); localStorage.setItem('sr_volY', vY); } catch(e){}
+}
+(function(){ try {
+  const a = localStorage.getItem('sr_volL'); if(a) document.getElementById('volLocal').value = a;
+  const b = localStorage.getItem('sr_volY'); if(b) document.getElementById('volYT').value = b;
+} catch(e){} })();
 
 const localAudio = document.getElementById('localPlayer');
 let ytRetomar = false;
@@ -305,6 +335,7 @@ function tocarLocal(retomar) {
   tocandoLocal = true;
   try { ytPlayer.pauseVideo(); } catch(e){}
   localAudio.src = l.url;
+  try{ajustarVolumes();}catch(e){}
   const p = localAudio.play();
   if (p && p.catch) p.catch(()=>{ setStatus('⚠️ Celular bloqueou o áudio. Toque em ▶️ no player de baixo 1x pra liberar, depois aperta Próxima.'); log('⚠️ Autoplay bloqueado no celular — toque no player local.'); });
   setStatus(`🎙️ Tocando SUA música: <b>${l.nome}</b><br><small>YouTube pausado, volta sozinho.</small>`);
@@ -319,7 +350,7 @@ function tocarYT(id) {
   tocandoLocal = false;
   localAudio.pause();
   ytAtualPos = ytIds.indexOf(id);
-  try { ytPlayer.loadVideoById(id); } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
+  try { ytPlayer.loadVideoById(id); try{ajustarVolumes();}catch(e){} } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
   setStatus(`▶️ Tocando YouTube: <b>${id}</b> <small>(${ytAtualPos+1}/${ytIds.length})</small>`);
   renderYTList(); renderFila();
 }
