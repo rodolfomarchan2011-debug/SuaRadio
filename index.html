@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SuaRadio - Uso Pessoal</title>
+<style>
+  * { box-sizing: border-box; font-family: Segoe UI, Arial, sans-serif; }
+  body { background: #0f0f14; color: #eee; margin: 0; padding: 16px; }
+  h1 { margin: 0 0 4px; } .sub { color: #aaa; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #1a1a22; border: 1px solid #2c2c38; border-radius: 12px; padding: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 17px; }
+  textarea, input[type=text], input[type=number] { width: 100%; background: #0f0f14; color: #eee; border: 1px solid #333; border-radius: 8px; padding: 8px; }
+  textarea { min-height: 90px; }
+  button { background: #e62117; color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; font-weight: bold; margin: 4px 4px 4px 0; }
+  button.sec { background: #2c2c38; } button.green { background: #1db954; } button.blue { background: #2563eb; }
+  button:disabled { opacity: .5; }
+  #yt-player { width: 100%; aspect-ratio: 16/9; border-radius: 8px; background: #000; overflow:hidden; }
+  #yt-player iframe { width: 100% !important; height: 100% !important; aspect-ratio: 16/9; border:0; }
+  .controles { position: sticky; top: 0; z-index: 5; background: #1a1a22; padding-bottom: 6px; }
+  #status { background: #0f0f14; border-radius: 8px; padding: 10px; min-height: 60px; font-size: 14px; }
+  .pill { display: inline-block; background: #2c2c38; border-radius: 20px; padding: 3px 10px; font-size: 12px; margin: 2px; }
+  .pill.local { background: #1db954; color: #04140a; } .pill.yt { background: #e62117; }
+  #log { max-height: 180px; overflow: auto; font-size: 12px; background: #0f0f14; border-radius: 8px; padding: 8px; }
+  #ytList { max-height: 320px; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .yt-item { display: flex; gap: 10px; align-items: center; background: #0f0f14; border: 1px solid #333; border-radius: 10px; padding: 6px; cursor: pointer; }
+  .yt-item img { width: 120px; height: 68px; object-fit: cover; border-radius: 6px; background: #000; }
+  .yt-item .t { flex: 1; min-width: 0; } .yt-item .t b { font-size: 13px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .yt-item.tocando { border-color: #1db954; background: #10281a; box-shadow: 0 0 0 1px #1db954; }
+  .yt-badge { font-size: 11px; background: #e62117; border-radius: 20px; padding: 2px 8px; }
+  .yt-item.tocando .yt-badge { background: #1db954; color: #04140a; }
+  ul { padding-left: 18px; } li { font-size: 13px; margin: 3px 0; }
+  .row { display: flex; gap: 8px; } .row > div { flex: 1; }
+  small { color: #aaa; }
+  #login-screen { position: fixed; inset: 0; background: #0f0f14; z-index: 999; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #login-box { background: #1a1a22; border: 1px solid #333; border-radius: 14px; padding: 24px; width: 100%; max-width: 340px; text-align: center; }
+  #login-box input { margin: 6px 0; }
+</style>
+</head>
+<body>
+<div id="login-screen">
+  <div id="login-box">
+    <div style="font-size:40px">📻</div>
+    <h2>SuaRadio</h2>
+    <small>Área restrita — faça login</small>
+    <input type="text" id="loginUser" placeholder="Usuário" autocomplete="username">
+    <input type="password" id="loginPass" placeholder="Senha" autocomplete="current-password">
+    <button class="green" style="width:100%" onclick="fazerLogin()">Entrar</button>
+    <div id="loginErro" style="color:#f87171;font-size:13px;margin-top:8px"></div>
+    <small>Troque user/senha no código: LOGIN_USER / LOGIN_PASS</small>
+  </div>
+</div>
+<div id="aviso-file" style="display:none;background:#7c2d12;border:1px solid #fb923c;border-radius:10px;padding:10px;margin-bottom:12px">⚠️ Você abriu como <b>Arquivo (file://)</b> — o YouTube dá <b>Erro 153</b> assim. Feche e use o <b>iniciar-SuaRadio.bat</b> (ele abre via <b>http://localhost:8080</b>).</div>
+<h1>📻 SuaRadio <small style="font-weight:normal">uso pessoal</small> <button class="sec" style="float:right;font-size:12px" onclick="sair()">Sair</button></h1>
+<div class="sub">YouTube (player oficial) + suas músicas intercalando no automático. Nada é baixado do YouTube — 100% dentro das regras para uso pessoal.</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>1️⃣ Playlist do YouTube</h2>
+    <small>Cole 1 link por linha. Ex: https://www.youtube.com/watch?v=... ou só o ID</small>
+    <textarea id="ytUrls" placeholder="Cole aqui seus links do YouTube..."></textarea>
+    <div class="row">
+      <div><label><small>A cada N vídeos do YT:</small></label><input type="number" id="cfgCadaN" value="2" min="1" max="20"></div>
+      <div><label><small>Ou a cada X minutos:</small></label><input type="number" id="cfgCadaMin" value="0" min="0" max="120"><small> 0 = desligado</small></div>
+    </div>
+    <button class="blue" onclick="carregarYT()">Carregar YouTube</button>
+    <div style="margin-top:6px"><small id="ytCount">Nenhum vídeo ainda.</small></div>
+    <div id="ytList"></div>
+  </div>
+
+  <div class="card">
+    <h2>2️⃣ Minhas músicas / spots (seus MP3)</h2>
+    <small>Arquivos ficam só no seu navegador, nada sobe pra internet.</small><br><br>
+    <input type="file" id="localFiles" accept="audio/*" multiple>
+    <div style="margin-top:8px">
+      <label><input type="radio" name="modoLocal" value="sequencial" checked> Sequencial</label>
+      <label><input type="radio" name="modoLocal" value="aleatorio"> Aleatório</label>
+    </div>
+    <div id="localList"><small>Nenhum arquivo ainda.</small></div>
+    <audio id="localPlayer" controls style="width:100%;margin-top:8px"></audio>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:16px">
+  <div class="card">
+    <h2>3️⃣ No ar</h2>
+    <div class="controles">
+    <div style="margin-top:0">
+      <button class="green" onclick="iniciarRadio()">▶️ Iniciar rádio</button>
+      <button class="sec" onclick="pausarTudo()">⏸️ Pausar</button>
+      <button class="sec" onclick="proximo()">⏭️ Próxima</button>
+      <button onclick="tocarLocalAgora()">🎙️ Tocar minha música agora</button>
+      <button class="sec" onclick="reconectarPlayer()">🔄 Reconectar YouTube</button>
+      <button class="sec" onclick="testar10s()">🧪 Testar vinheta em 10s</button>
+    </div>
+    <div style="margin-top:8px">
+      <label><input type="checkbox" id="autoDJ" checked> AutoDJ ligado (intercalar automático)</label>
+    </div>
+    <div id="status" style="margin-top:8px">Parado. Aperte <b>Iniciar rádio</b>, não o play do vídeo.</div>
+    </div>
+    <div id="yt-player" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Fila + Log</h2>
+    <div id="fila"></div>
+    <h2 style="margin-top:10px">Log</h2>
+    <div id="log"></div>
+    <button class="sec" onclick="document.getElementById('log').innerHTML=''">Limpar log</button>
+  </div>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+// ===== LOGIN (simples, sem banco de dados) =====
+const LOGIN_USER = 'admin';
+const LOGIN_PASS = 'suaradio123'; // 👈 troque aqui sua senha antes de publicar
+function fazerLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  if (u === LOGIN_USER && p === LOGIN_PASS) {
+    sessionStorage.setItem('suaradio_auth', '1');
+    document.getElementById('login-screen').style.display = 'none';
+    log('✅ Bem-vindo!');
+  } else { document.getElementById('loginErro').textContent = '❌ Usuário ou senha errados.'; }
+}
+function sair() { sessionStorage.removeItem('suaradio_auth'); location.reload(); }
+(function(){ if (sessionStorage.getItem('suaradio_auth') === '1') document.getElementById('login-screen').style.display = 'none'; })();
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') fazerLogin(); });
+
+// ===== SALVAR LOCAL (navegador) =====
+function salvarLocal() {
+  try {
+    localStorage.setItem('sr_yt', document.getElementById('ytUrls').value);
+    localStorage.setItem('sr_n', document.getElementById('cfgCadaN').value);
+    localStorage.setItem('sr_min', document.getElementById('cfgCadaMin').value);
+  } catch(e){}
+}
+function carregarLocal() {
+  try {
+    const v = localStorage.getItem('sr_yt');
+    if (v) document.getElementById('ytUrls').value = v;
+    const n = localStorage.getItem('sr_n'); if (n) document.getElementById('cfgCadaN').value = n;
+    const m = localStorage.getItem('sr_min'); if (m) document.getElementById('cfgCadaMin').value = m;
+  } catch(e){}
+}
+carregarLocal();
+// ===== Estado =====
+if (location.protocol === 'file:') { document.getElementById('aviso-file').style.display = 'block'; }
+let ytPlayer = null, ytReady = false;
+let ytIds = [], ytIndex = 0, ytTocadosDesdeLocal = 0, ytAtualPos = -1;
+let locais = [], localIndex = 0;
+let tocandoLocal = false, timerMin = null, minCont = 0;
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const h = new Date().toLocaleTimeString();
+  el.innerHTML = `[${h}] ${msg}<br>` + el.innerHTML;
+}
+function setStatus(msg) { document.getElementById('status').innerHTML = msg; }
+
+function extrairID(url) {
+  url = url.trim(); if (!url) return null;
+  let m = url.match(/[?&]v=([^&#]+)/); if (m) return m[1];
+  m = url.match(/youtu\.be\/([^?&#]+)/); if (m) return m[1];
+  m = url.match(/\/shorts\/([^?&#]+)/); if (m) return m[1];
+  if (/^[a-zA-Z0-9_-]{11}$/.test(url)) return url;
+  return null;
+}
+
+// ===== YouTube API =====
+function criarPlayer(videoId) {
+  try { if (ytPlayer && ytPlayer.destroy) ytPlayer.destroy(); } catch(e){}
+  document.getElementById('yt-player').innerHTML = '';
+  ytReady = false;
+  ytPlayer = new YT.Player('yt-player', {
+    height: '100%', width: '100%',
+    videoId: videoId || 'K44oVjSPbbk',
+    playerVars: { rel: 0, autoplay: 0 },
+    events: {
+      'onReady': () => { ytReady = true; log('✅ Player YouTube pronto. Pode apertar Iniciar.'); setStatus('✅ Player pronto. Aperte Iniciar rádio.'); },
+      'onStateChange': onYTState,
+      'onError': (e)=>{ log('❌ Erro YT: '+e.data+' (150/101 = dono bloqueou embed, troque o vídeo).'); }
+    }
+  });
+}
+function onYouTubeIframeAPIReady() { criarPlayer(ytIds[0] || 'K44oVjSPbbk'); }
+function reconectarPlayer() {
+  if (typeof YT === 'undefined' || !YT.Player) { log('⏳ API ainda baixando... aguarde 5s e tente de novo.'); setStatus('⏳ Baixando API do YouTube... aguarde.'); return; }
+  log('🔄 Reconectando player...'); setStatus('🔄 Reconectando...');
+  criarPlayer(ytIds[0] || 'K44oVjSPbbk');
+}
+setTimeout(()=>{ if(!ytReady) log('⚠️ Se player não conectou: desative AdBlock pra youtube.com e clique em 🔄 Reconectar.'); }, 8000);
+
+function carregarYT() {
+  const linhas = document.getElementById('ytUrls').value.split('\n');
+  ytIds = linhas.map(extrairID).filter(Boolean);
+  ytIndex = 0; ytTocadosDesdeLocal = 0; ytAtualPos = -1;
+  if (!ytIds.length) { alert('Cole ao menos 1 link válido do YouTube.'); return; }
+  salvarLocal();
+  log(`✅ ${ytIds.length} vídeos carregados.`);
+  renderYTList(); renderFila();
+}
+
+function renderYTList() {
+  const box = document.getElementById('ytList');
+  document.getElementById('ytCount').textContent = `${ytIds.length} vídeos na programação`;
+  box.innerHTML = ytIds.map((id,i)=>{
+    const ativo = (i === ytAtualPos && !tocandoLocal) ? 'tocando' : '';
+    const badge = (i === ytAtualPos && !tocandoLocal) ? '▶️ TOCANDO' : `${i+1}`;
+    return `<div class="yt-item ${ativo}" onclick="tocarYTPos(${i})">
+      <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" loading="lazy" onerror="this.style.opacity=.2">
+      <div class="t"><b>${id}</b><small>youtube.com/watch?v=${id}</small></div>
+      <span class="yt-badge">${badge}</span>
+    </div>`;
+  }).join('');
+}
+function tocarYTPos(i, tent) {
+  tent = tent || 0;
+  if (!ytReady || !ytPlayer || !ytPlayer.loadVideoById) {
+    if (tent > 10) { setStatus('❌ Player não respondeu. Clique em 🔄 Reconectar YouTube.'); return; }
+    setStatus(`⏳ Carregando player... (${tent+1}/10)`);
+    setTimeout(()=>tocarYTPos(i, tent+1), 1000); return;
+  }
+  ytIndex = i; tocarYTProximo();
+}
+
+function onYTState(e) {
+  // 0 = ended, 1 = playing, 2 = paused
+  if (e.data === 0 && !tocandoLocal) {
+    ytTocadosDesdeLocal++;
+    log(`🎬 YT terminou (${ytTocadosDesdeLocal} desde último local).`);
+    deveIntercalar() ? tocarLocal() : tocarYTProximo();
+  }
+}
+
+function deveIntercalar() {
+  if (!document.getElementById('autoDJ').checked) return false;
+  if (!locais.length) return false;
+  const cadaN = parseInt(document.getElementById('cfgCadaN').value || '2');
+  if (ytTocadosDesdeLocal >= cadaN) return true;
+  return false;
+}
+
+// ===== Locais =====
+document.getElementById('localFiles').addEventListener('change', (ev) => {
+  locais = [...ev.target.files].map(f => ({ nome: f.name, url: URL.createObjectURL(f) }));
+  localIndex = 0;
+  document.getElementById('localList').innerHTML = '<ul>' + locais.map(l=>`<li>🎵 ${l.nome}</li>`).join('') + '</ul>';
+  log(`✅ ${locais.length} arquivos locais prontos.`);
+  renderFila();
+});
+
+const localAudio = document.getElementById('localPlayer');
+localAudio.addEventListener('ended', () => {
+  log('🎵 Minha música terminou. Voltando pro YouTube...');
+  tocandoLocal = false; ytTocadosDesdeLocal = 0; minCont = 0;
+  tocarYTProximo();
+});
+
+function pegarLocal() {
+  if (!locais.length) return null;
+  const modo = document.querySelector('input[name=modoLocal]:checked').value;
+  if (modo === 'aleatorio') return locais[Math.floor(Math.random()*locais.length)];
+  const l = locais[localIndex % locais.length]; localIndex++;
+  return l;
+}
+
+function tocarLocal() {
+  const l = pegarLocal(); if (!l) { tocarYTProximo(); return; }
+  tocandoLocal = true;
+  try { ytPlayer.pauseVideo(); } catch(e){}
+  localAudio.src = l.url;
+  const p = localAudio.play();
+  if (p && p.catch) p.catch(()=>{ setStatus('⚠️ Celular bloqueou o áudio. Toque em ▶️ no player de baixo 1x pra liberar, depois aperta Próxima.'); log('⚠️ Autoplay bloqueado no celular — toque no player local.'); });
+  setStatus(`🎙️ Tocando SUA música: <b>${l.nome}</b><br><small>YouTube pausado, volta sozinho.</small>`);
+  log(`🎙️ Intercalando: ${l.nome}`);
+  renderYTList(); renderFila();
+}
+function tocarLocalAgora() { if(!locais.length){alert('Adicione seus MP3 primeiro.');return;} tocarLocal(); }
+
+// ===== Fluxo principal =====
+function tocarYT(id) {
+  if (!ytReady || !ytPlayer || !ytPlayer.loadVideoById) { setStatus('⏳ Player carregando, tentando de novo...'); setTimeout(()=>tocarYT(id), 1200); return; }
+  tocandoLocal = false;
+  localAudio.pause();
+  ytAtualPos = ytIds.indexOf(id);
+  try { ytPlayer.loadVideoById(id); } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
+  setStatus(`▶️ Tocando YouTube: <b>${id}</b> <small>(${ytAtualPos+1}/${ytIds.length})</small>`);
+  renderYTList(); renderFila();
+}
+function tocarYTProximo() {
+  if (!ytIds.length) { setStatus('Adicione links do YouTube.'); return; }
+  const id = ytIds[ytIndex % ytIds.length]; ytIndex++;
+  tocarYT(id);
+}
+function iniciarRadio(tent) {
+  tent = tent || 0;
+  if (!ytReady || !ytPlayer || !ytPlayer.loadVideoById) {
+    if (tent > 12) { setStatus('❌ Player não carregou. Clique em 🔄 Reconectar YouTube e tente de novo. Desative AdBlock.'); log('❌ Falha ao iniciar: API bloqueada.'); return; }
+    setStatus(`⏳ Conectando YouTube... (${tent+1}) não precisa abrir outra janela.`);
+    setTimeout(()=>iniciarRadio(tent+1), 1000); return;
+  }
+  if (!ytIds.length) carregarYT();
+  if (!ytIds.length) return;
+  // timer por minutos
+  salvarLocal();
+  // libera áudio no celular (precisa de 1 toque)
+  try { localAudio.muted = true; localAudio.play().then(()=>localAudio.pause()).catch(()=>{}); localAudio.muted = false; } catch(e){}
+  const cadaMin = parseInt(document.getElementById('cfgCadaMin').value || '0');
+  clearInterval(timerMin);
+  if (cadaMin > 0) {
+    minCont = 0;
+    log(`⏱️ Timer ligado: sua gravação a cada ${cadaMin} min. Deixe a tela aberta.`);
+    timerMin = setInterval(() => {
+      if (tocandoLocal) return;
+      minCont++;
+      log(`⏱️ ${minCont}/${cadaMin} min...`);
+      if (minCont >= cadaMin && locais.length && document.getElementById('autoDJ').checked) {
+        minCont = 0; tocarLocal();
+      }
+    }, 60000);
+  }
+  ytIndex = ytIndex % ytIds.length;
+  tocarYT(ytIds[ytIndex % ytIds.length]); ytIndex++;
+  log('🚀 SuaRadio no ar (modo pessoal).');
+}
+function pausarTudo() { try{ytPlayer.pauseVideo();}catch(e){} localAudio.pause(); setStatus('⏸️ Pausado.'); }
+function proximo() {
+  if (tocandoLocal) { localAudio.pause(); tocandoLocal=false; ytTocadosDesdeLocal=0; tocarYTProximo(); }
+  else { ytTocadosDesdeLocal++; deveIntercalar() ? tocarLocal() : tocarYTProximo(); }
+}
+function testar10s() {
+  if (!locais.length) { alert('Suba sua gravação primeiro.'); return; }
+  log('🧪 Teste: sua gravação toca em 10s...');
+  setStatus('🧪 Teste em 10s... deixe o som ligado.');
+  setTimeout(()=>{ if (!document.getElementById('autoDJ').checked) document.getElementById('autoDJ').checked = true; tocarLocal(); }, 10000);
+}
+function renderFila() {
+  document.getElementById('fila').innerHTML =
+    `<span class="pill">YT: ${ytIds.length} vídeos (pos ${ytIndex})</span> ` +
+    `<span class="pill local">Locais: ${locais.length}</span> ` +
+    `<span class="pill">${tocandoLocal ? '🎙️ TOCANDO LOCAL' : '▶️ YOUTUBE'}</span>`;
+}
+</script>
+</body>
+</html>

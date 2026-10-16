@@ -1,0 +1,5 @@
+Coloque aqui seus MP3 para organizar.
+Ex: vinheta-abertura.mp3, promo.mp3, minha-musica.mp3
+
+Depois no app (index.html) clique em "Minhas músicas" e selecione eles.
+Nada aqui é enviado pra internet, fica só no seu PC.

@@ -1,0 +1,7 @@
+# Ignora áudios grandes — GitHub bloqueia arquivo >100MB
+*.mp3
+*.wav
+*.m4a
+*.ogg
+minhas-musicas/*
+!minhas-musicas/LEIA-ME.txt
