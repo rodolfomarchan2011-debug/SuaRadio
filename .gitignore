@@ -1,7 +1,10 @@
-# Ignora áudios grandes — GitHub bloqueia arquivo >100MB
-*.mp3
+# MP3 temporário local ignora, mas MP3 fixo em /musicas sobe pro site
 *.wav
 *.m4a
 *.ogg
 minhas-musicas/*
 !minhas-musicas/LEIA-ME.txt
+# permite MP3 online (até 25MB por arquivo na Cloudflare)
+!musicas/
+!musicas/*.mp3
+!musicas/lista.json

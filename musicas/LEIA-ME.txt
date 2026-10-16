@@ -1,0 +1,10 @@
+Coloque aqui seus MP3 FIXOS (tocam em qualquer celular sem precisar subir de novo).
+
+Como usar:
+1. Copie seu MP3 para esta pasta (ex: vinheta.mp3, max 25MB)
+2. Edite lista.json e adicione: { "nome": "Vinheta", "arquivo": "vinheta.mp3" }
+3. Commit + push (eu faço daqui) — Cloudflare publica sozinho
+4. No site aparece em "MP3s online" e soma com YouTube + locais
+
+Temporário (só neste aparelho): use "Minhas músicas" no app.
+Fixo (todos aparelhos): use esta pasta musicas/.

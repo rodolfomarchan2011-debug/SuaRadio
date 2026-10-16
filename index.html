@@ -72,7 +72,10 @@
 
   <div class="card">
     <h2>2️⃣ Minhas músicas / spots (seus MP3)</h2>
-    <small>Arquivos ficam só no seu navegador, nada sobe pra internet.</small><br><br>
+    <small><b>Online (fixo):</b> toca em qualquer celular. Pra adicionar, coloque MP3 na pasta <b>musicas/</b> + push.</small>
+    <div id="onlineList" style="margin:8px 0"><small>Carregando MP3s online...</small></div>
+    <hr style="border:0;border-top:1px solid #333">
+    <small><b>Temporário (só neste aparelho):</b> selecione aqui, some junto com os de cima.</small><br><br>
     <input type="file" id="localFiles" accept="audio/*" multiple>
     <div style="margin-top:8px">
       <label><input type="radio" name="modoLocal" value="sequencial" checked> Sequencial</label>
@@ -238,7 +241,7 @@ function onYTState(e) {
 
 function deveIntercalar() {
   if (!document.getElementById('autoDJ').checked) return false;
-  if (!locais.length) return false;
+  if (!todosLocais().length) return false;
   const cadaN = parseInt(document.getElementById('cfgCadaN').value || '2');
   if (ytTocadosDesdeLocal >= cadaN) return true;
   return false;
@@ -260,11 +263,30 @@ localAudio.addEventListener('ended', () => {
   tocarYTProximo();
 });
 
+// ===== MP3s ONLINE (pasta musicas/) + LOCAIS somados =====
+let onlineLocais = [];
+async function carregarOnline() {
+  const box = document.getElementById('onlineList');
+  try {
+    const r = await fetch('musicas/lista.json', { cache: 'no-store' });
+    const arr = await r.json();
+    onlineLocais = arr.filter(x=>x.arquivo && !/exemplo\.mp3/i.test(x.arquivo)).map(x=>({ nome: x.nome || x.arquivo, url: 'musicas/' + x.arquivo, fixo: true }));
+    if (!onlineLocais.length) box.innerHTML = '<small>Nenhum MP3 fixo ainda. Coloque MP3 em <b>musicas/</b> e edite <b>lista.json</b>.</small>';
+    else box.innerHTML = '<ul>' + onlineLocais.map(o=>`<li>☁️ ${o.nome}</li>`).join('') + '</ul>';
+    log(`☁️ ${onlineLocais.length} MP3 online carregados.`);
+  } catch(e){ box.innerHTML = '<small>Sem MP3 online (pasta musicas/ vazia).</small>'; }
+  renderFila();
+}
+carregarOnline();
+
+function todosLocais() { return [...onlineLocais, ...locais]; }
+
 function pegarLocal() {
-  if (!locais.length) return null;
+  const todos = todosLocais();
+  if (!todos.length) return null;
   const modo = document.querySelector('input[name=modoLocal]:checked').value;
-  if (modo === 'aleatorio') return locais[Math.floor(Math.random()*locais.length)];
-  const l = locais[localIndex % locais.length]; localIndex++;
+  if (modo === 'aleatorio') return todos[Math.floor(Math.random()*todos.length)];
+  const l = todos[localIndex % todos.length]; localIndex++;
   return l;
 }
 
@@ -279,7 +301,7 @@ function tocarLocal() {
   log(`🎙️ Intercalando: ${l.nome}`);
   renderYTList(); renderFila();
 }
-function tocarLocalAgora() { if(!locais.length){alert('Adicione seus MP3 primeiro.');return;} tocarLocal(); }
+function tocarLocalAgora() { if(!todosLocais().length){alert('Adicione MP3 temporário ou coloque MP3 na pasta musicas/.');return;} tocarLocal(); }
 
 // ===== Fluxo principal =====
 function tocarYT(id) {
@@ -318,7 +340,7 @@ function iniciarRadio(tent) {
       if (tocandoLocal) return;
       minCont++;
       log(`⏱️ ${minCont}/${cadaMin} min...`);
-      if (minCont >= cadaMin && locais.length && document.getElementById('autoDJ').checked) {
+      if (minCont >= cadaMin && todosLocais().length && document.getElementById('autoDJ').checked) {
         minCont = 0; tocarLocal();
       }
     }, 60000);
@@ -333,7 +355,7 @@ function proximo() {
   else { ytTocadosDesdeLocal++; deveIntercalar() ? tocarLocal() : tocarYTProximo(); }
 }
 function testar10s() {
-  if (!locais.length) { alert('Suba sua gravação primeiro.'); return; }
+  if (!todosLocais().length) { alert('Suba MP3 temporário ou coloque MP3 na pasta musicas/.'); return; }
   log('🧪 Teste: sua gravação toca em 10s...');
   setStatus('🧪 Teste em 10s... deixe o som ligado.');
   setTimeout(()=>{ if (!document.getElementById('autoDJ').checked) document.getElementById('autoDJ').checked = true; tocarLocal(); }, 10000);
@@ -341,8 +363,8 @@ function testar10s() {
 function renderFila() {
   document.getElementById('fila').innerHTML =
     `<span class="pill">YT: ${ytIds.length} vídeos (pos ${ytIndex})</span> ` +
-    `<span class="pill local">Locais: ${locais.length}</span> ` +
-    `<span class="pill">${tocandoLocal ? '🎙️ TOCANDO LOCAL' : '▶️ YOUTUBE'}</span>`;
+    `<span class="pill local">Online: ${onlineLocais.length} + Temp: ${locais.length} = ${todosLocais().length}</span> ` +
+    `<span class="pill">${tocandoLocal ? '🎙️ TOCANDO MP3' : '▶️ YOUTUBE'}</span>`;
 }
 </script>
 </body>
