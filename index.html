@@ -241,10 +241,13 @@ function tocarYTPos(i, tent) {
 
 function onYTState(e) {
   // 0 = ended, 1 = playing, 2 = paused
+  if (e.data === 1 && !tocandoLocal && ytAtualPos>=0 && ytIds[ytAtualPos]) {
+    try { if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(ytEff(ytIds[ytAtualPos])); } catch(_){}
+  }
   if (e.data === 0 && !tocandoLocal) {
     ytTocadosDesdeLocal++;
     log(`🎬 YT terminou (${ytTocadosDesdeLocal} desde último local).`);
-    deveIntercalar() ? tocarLocal() : tocarYTProximo();
+    deveIntercalar() ? tocarLocal(false) : tocarYTProximo();
   }
 }
 
@@ -279,7 +282,7 @@ function renderLocais() {
 }
 async function removerTemp(id){ const it=locais.find(x=>x.id===id); if(it&&it.url.startsWith('blob:')) try{URL.revokeObjectURL(it.url);}catch(e){} locais=locais.filter(x=>x.id!==id); await idbDel(id); renderLocais(); renderFila(); }
 async function limparTemporarios(){ locais.forEach(l=>{ if(l.url.startsWith('blob:')) try{URL.revokeObjectURL(l.url);}catch(e){} }); locais=[]; localIndex=0; document.getElementById('localFiles').value=''; await idbClear(); renderLocais(); renderFila(); log('🗑️ Temporários limpos.'); }
-async function setTempVol(id,val){ const l=locais.find(x=>x.id===id); if(!l) return; l.volume=parseInt(val); const s=document.getElementById('v_'+id); if(s) s.textContent=val; try{ const d=await idb(); const t=d.transaction('audios','readwrite'); const st=t.objectStore('audios'); const g=st.get(id); g.onsuccess=()=>{ const o=g.result; if(o){ o.volume=l.volume; st.put(o); } }; }catch(e){} try{ajustarVolumes();}catch(e){} }
+async function setTempVol(id,val){ const l=locais.find(x=>x.id===id); if(!l) return; l.volume=parseInt(val); const s=document.getElementById('v_'+id); if(s) s.textContent=val; try{ const d=await idb(); const t=d.transaction('audios','readwrite'); const st=t.objectStore('audios'); const g=st.get(id); g.onsuccess=()=>{ const o=g.result; if(o){ o.volume=l.volume; st.put(o); } }; }catch(e){} try{ const cur=window._tocandoMP3; if(cur&&cur.id===id){ localAudio.volume=mp3Eff(cur); setStatus(`🔊 ${cur.nome}: faixa ${val}% x geral ${masterL()}%`); } }catch(e){} }
 document.getElementById('localFiles').addEventListener('change', async (ev) => {
   const files=[...ev.target.files]; if(!files.length) return;
   for (const f of files) { const it={ id: uid(), nome: f.name, volume: 100, blob: f }; await idbPut(it); locais.push({ id: it.id, nome: it.nome, volume: 100, url: URL.createObjectURL(f) }); }
@@ -301,8 +304,8 @@ try { ytVolMap = JSON.parse(localStorage.getItem('sr_ytvol')||'{}'); } catch(e){
 try { onVolMap = JSON.parse(localStorage.getItem('sr_onvol')||'{}'); } catch(e){ onVolMap={}; }
 function masterL(){ return parseInt(document.getElementById('volLocal').value||'100'); }
 function masterY(){ return parseInt(document.getElementById('volYT').value||'80'); }
-function setYTVol(id,val){ ytVolMap[id]=parseInt(val); try{localStorage.setItem('sr_ytvol',JSON.stringify(ytVolMap));}catch(e){} const s=document.getElementById('yv_'+id); if(s) s.textContent=val; try{ajustarVolumes();}catch(e){} }
-function setOnVol(arq,val){ onVolMap[arq]=parseInt(val); try{localStorage.setItem('sr_onvol',JSON.stringify(onVolMap));}catch(e){} const s=document.getElementById('ov_'+btoa(arq).replace(/=/g,'')); if(s) s.textContent=val; try{ajustarVolumes();}catch(e){} }
+function setYTVol(id,val){ ytVolMap[id]=parseInt(val); try{localStorage.setItem('sr_ytvol',JSON.stringify(ytVolMap));}catch(e){} const s=document.getElementById('yv_'+id); if(s) s.textContent=val; try{ if(ytAtualPos>=0 && ytIds[ytAtualPos]===id && ytPlayer && ytPlayer.setVolume){ ytPlayer.setVolume(ytEff(id)); setStatus(`🔊 YT ${id}: faixa ${val}% x geral ${masterY()}% = <b>${ytEff(id)}%</b>`); } }catch(e){} }
+function setOnVol(arq,val){ onVolMap[arq]=parseInt(val); try{localStorage.setItem('sr_onvol',JSON.stringify(onVolMap));}catch(e){} const s=document.getElementById('ov_'+btoa(arq).replace(/=/g,'')); if(s) s.textContent=val; try{ const cur=window._tocandoMP3; if(cur&&cur.fixo&&cur.arquivo===arq){ localAudio.volume=mp3Eff(cur); setStatus(`🔊 ${cur.nome}: faixa ${val}% x geral ${masterL()}%`); } }catch(e){} }
 function ytEff(id){ const item = ytVolMap[id]!==undefined?ytVolMap[id]:100; return Math.round(masterY()*item/100); }
 function mp3Eff(l){ const item = l.volume!==undefined?l.volume:100; const base = l.fixo ? (onVolMap[l.arquivo]!==undefined?onVolMap[l.arquivo]:100) : item; return (masterL()/100)*(base/100); }
 function ajustarVolumes() {
