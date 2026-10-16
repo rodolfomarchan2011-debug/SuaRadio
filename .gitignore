@@ -8,3 +8,8 @@ minhas-musicas/*
 !musicas/
 !musicas/*.mp3
 !musicas/lista.json
+# nunca subir chaves
+chave*.txt
+*key*.txt
+*api*.txt
+.env
