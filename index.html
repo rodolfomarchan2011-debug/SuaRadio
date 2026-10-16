@@ -217,13 +217,14 @@ function carregarYT() {
 
 function renderYTList() {
   const box = document.getElementById('ytList');
-  document.getElementById('ytCount').textContent = `${ytIds.length} vídeos na programação`;
+  document.getElementById('ytCount').textContent = `${ytIds.length} vídeos na programação (vol salvo no navegador)`;
   box.innerHTML = ytIds.map((id,i)=>{
     const ativo = (i === ytAtualPos && !tocandoLocal) ? 'tocando' : '';
     const badge = (i === ytAtualPos && !tocandoLocal) ? '▶️ TOCANDO' : `${i+1}`;
-    return `<div class="yt-item ${ativo}" onclick="tocarYTPos(${i})">
-      <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" loading="lazy" onerror="this.style.opacity=.2">
-      <div class="t"><b>${id}</b><small>youtube.com/watch?v=${id}</small></div>
+    const vv = ytVolMap[id]!==undefined?ytVolMap[id]:100;
+    return `<div class="yt-item ${ativo}">
+      <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" loading="lazy" onerror="this.style.opacity=.2" onclick="tocarYTPos(${i})" style="cursor:pointer">
+      <div class="t"><b onclick="tocarYTPos(${i})" style="cursor:pointer">${id}</b><small>youtube.com/watch?v=${id}</small><br><small>vol <span id="yv_${id}">${vv}</span>%</small> <input type="range" min="0" max="100" value="${vv}" style="width:55%" onclick="event.stopPropagation()" oninput="setYTVol('${id}',this.value)"></div>
       <span class="yt-badge">${badge}</span>
     </div>`;
   }).join('');
@@ -255,30 +256,65 @@ function deveIntercalar() {
   return false;
 }
 
-// ===== Locais (ilimitado, soma a cada escolha) =====
-function renderLocais() {
-  document.getElementById('localList').innerHTML = locais.length ? '<ul>' + locais.map((l,i)=>`<li>🎵 ${i+1}. ${l.nome} <a href="#" onclick="removerTemp(${i});return false" style="color:#f87171">x</a></li>`).join('') + '</ul>' : '<small>Nenhum arquivo ainda.</small>';
-  document.getElementById('tempCount').textContent = locais.length ? `${locais.length} temporários` : '';
+// ===== Locais (ilimitado, soma a cada escolha, SALVO no navegador via IndexedDB) =====
+let dbP = null;
+function idb() {
+  if (dbP) return dbP;
+  dbP = new Promise((res, rej) => {
+    const q = indexedDB.open('SuaRadioDB', 1);
+    q.onupgradeneeded = () => { q.result.createObjectStore('audios', { keyPath: 'id' }); };
+    q.onsuccess = () => res(q.result);
+    q.onerror = () => rej(q.error);
+  });
+  return dbP;
 }
-function removerTemp(i){ locais.splice(i,1); if(localIndex>locais.length) localIndex=0; renderLocais(); renderFila(); }
-function limparTemporarios(){ locais=[]; localIndex=0; document.getElementById('localFiles').value=''; renderLocais(); renderFila(); log('🗑️ Temporários limpos.'); }
-document.getElementById('localFiles').addEventListener('change', (ev) => {
-  const novos = [...ev.target.files].map(f => ({ nome: f.name, url: URL.createObjectURL(f) }));
-  locais = [...locais, ...novos];
+async function idbPut(it){ try{ const d=await idb(); await new Promise((res,rej)=>{ const t=d.transaction('audios','readwrite'); t.objectStore('audios').put(it); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }catch(e){} }
+async function idbDel(id){ try{ const d=await idb(); await new Promise((res,rej)=>{ const t=d.transaction('audios','readwrite'); t.objectStore('audios').delete(id); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }catch(e){} }
+async function idbClear(){ try{ const d=await idb(); await new Promise((res,rej)=>{ const t=d.transaction('audios','readwrite'); t.objectStore('audios').clear(); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }catch(e){} }
+async function idbAll(){ try{ const d=await idb(); return await new Promise((res,rej)=>{ const t=d.transaction('audios','readonly'); const q=t.objectStore('audios').getAll(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }catch(e){ return []; } }
+function uid(){ return 't'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function renderLocais() {
+  document.getElementById('localList').innerHTML = locais.length ? '<ul>' + locais.map((l)=>`<li>🎵 ${l.nome}<br><small>vol <span id="v_${l.id}">${l.volume||100}</span>%</small> <input type="range" min="0" max="100" value="${l.volume||100}" style="width:60%" oninput="setTempVol('${l.id}',this.value)"> <a href="#" onclick="removerTemp('${l.id}');return false" style="color:#f87171">x</a></li>`).join('') + '</ul>' : '<small>Nenhum arquivo ainda. Ficam salvos no navegador mesmo atualizando.</small>';
+  document.getElementById('tempCount').textContent = locais.length ? `${locais.length} salvos no navegador` : '';
+}
+async function removerTemp(id){ const it=locais.find(x=>x.id===id); if(it&&it.url.startsWith('blob:')) try{URL.revokeObjectURL(it.url);}catch(e){} locais=locais.filter(x=>x.id!==id); await idbDel(id); renderLocais(); renderFila(); }
+async function limparTemporarios(){ locais.forEach(l=>{ if(l.url.startsWith('blob:')) try{URL.revokeObjectURL(l.url);}catch(e){} }); locais=[]; localIndex=0; document.getElementById('localFiles').value=''; await idbClear(); renderLocais(); renderFila(); log('🗑️ Temporários limpos.'); }
+async function setTempVol(id,val){ const l=locais.find(x=>x.id===id); if(!l) return; l.volume=parseInt(val); const s=document.getElementById('v_'+id); if(s) s.textContent=val; try{ const d=await idb(); const t=d.transaction('audios','readwrite'); const st=t.objectStore('audios'); const g=st.get(id); g.onsuccess=()=>{ const o=g.result; if(o){ o.volume=l.volume; st.put(o); } }; }catch(e){} try{ajustarVolumes();}catch(e){} }
+document.getElementById('localFiles').addEventListener('change', async (ev) => {
+  const files=[...ev.target.files]; if(!files.length) return;
+  for (const f of files) { const it={ id: uid(), nome: f.name, volume: 100, blob: f }; await idbPut(it); locais.push({ id: it.id, nome: it.nome, volume: 100, url: URL.createObjectURL(f) }); }
   ev.target.value = '';
   renderLocais();
-  log(`✅ +${novos.length} adicionados (total temp: ${locais.length}).`);
+  log(`✅ +${files.length} adicionados e salvos no navegador (total: ${locais.length}).`);
   renderFila();
 });
+(async function restaurarTemporarios(){
+  const all = await idbAll();
+  locais = all.map(o=>({ id: o.id, nome: o.nome, volume: o.volume||100, url: URL.createObjectURL(o.blob) }));
+  renderLocais(); renderFila();
+  if(locais.length) log(`💾 ${locais.length} áudios restaurados do navegador.`);
+})();
 
-// ===== Volumes separados =====
+// ===== Volumes: master + por item =====
+let ytVolMap = {}; let onVolMap = {};
+try { ytVolMap = JSON.parse(localStorage.getItem('sr_ytvol')||'{}'); } catch(e){ ytVolMap={}; }
+try { onVolMap = JSON.parse(localStorage.getItem('sr_onvol')||'{}'); } catch(e){ onVolMap={}; }
+function masterL(){ return parseInt(document.getElementById('volLocal').value||'100'); }
+function masterY(){ return parseInt(document.getElementById('volYT').value||'80'); }
+function setYTVol(id,val){ ytVolMap[id]=parseInt(val); try{localStorage.setItem('sr_ytvol',JSON.stringify(ytVolMap));}catch(e){} const s=document.getElementById('yv_'+id); if(s) s.textContent=val; try{ajustarVolumes();}catch(e){} }
+function setOnVol(arq,val){ onVolMap[arq]=parseInt(val); try{localStorage.setItem('sr_onvol',JSON.stringify(onVolMap));}catch(e){} const s=document.getElementById('ov_'+btoa(arq).replace(/=/g,'')); if(s) s.textContent=val; try{ajustarVolumes();}catch(e){} }
+function ytEff(id){ const item = ytVolMap[id]!==undefined?ytVolMap[id]:100; return Math.round(masterY()*item/100); }
+function mp3Eff(l){ const item = l.volume!==undefined?l.volume:100; const base = l.fixo ? (onVolMap[l.arquivo]!==undefined?onVolMap[l.arquivo]:100) : item; return (masterL()/100)*(base/100); }
 function ajustarVolumes() {
-  const vL = parseInt(document.getElementById('volLocal').value || '100');
-  const vY = parseInt(document.getElementById('volYT').value || '80');
+  const vL = masterL();
+  const vY = masterY();
   document.getElementById('volLocalVal').textContent = vL;
   document.getElementById('volYTVal').textContent = vY;
-  try { localAudio.volume = vL/100; } catch(e){}
-  try { if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(vY); } catch(e){}
+  try {
+    const cur = window._tocandoMP3;
+    localAudio.volume = cur ? mp3Eff(cur) : vL/100;
+  } catch(e){}
+  try { if (ytPlayer && ytPlayer.setVolume && ytAtualPos>=0 && ytIds[ytAtualPos]) ytPlayer.setVolume(ytEff(ytIds[ytAtualPos])); else if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(vY); } catch(e){}
   try { localStorage.setItem('sr_volL', vL); localStorage.setItem('sr_volY', vY); } catch(e){}
 }
 (function(){ try {
@@ -309,9 +345,9 @@ async function carregarOnline() {
   try {
     const r = await fetch('musicas/lista.json', { cache: 'no-store' });
     const arr = await r.json();
-    onlineLocais = arr.filter(x=>x.arquivo && !/exemplo\.mp3/i.test(x.arquivo)).map(x=>({ nome: x.nome || x.arquivo, url: 'musicas/' + x.arquivo, fixo: true }));
+    onlineLocais = arr.filter(x=>x.arquivo && !/exemplo\.mp3/i.test(x.arquivo)).map(x=>({ nome: x.nome || x.arquivo, arquivo: x.arquivo, url: 'musicas/' + x.arquivo, fixo: true, volume: 100 }));
     if (!onlineLocais.length) box.innerHTML = '<small>Nenhum MP3 fixo ainda. Coloque MP3 em <b>musicas/</b> e edite <b>lista.json</b>.</small>';
-    else box.innerHTML = '<ul>' + onlineLocais.map(o=>`<li>☁️ ${o.nome}</li>`).join('') + '</ul>';
+    else box.innerHTML = '<ul>' + onlineLocais.map(o=>{ const vv = onVolMap[o.arquivo]!==undefined?onVolMap[o.arquivo]:100; const oid='ov_'+btoa(o.arquivo).replace(/=/g,''); return `<li>☁️ ${o.nome}<br><small>vol <span id="${oid}">${vv}</span>%</small> <input type="range" min="0" max="100" value="${vv}" style="width:55%" oninput="setOnVol('${o.arquivo}',this.value)"></li>`; }).join('') + '</ul>';
     log(`☁️ ${onlineLocais.length} MP3 online carregados.`);
   } catch(e){ box.innerHTML = '<small>Sem MP3 online (pasta musicas/ vazia).</small>'; }
   renderFila();
@@ -331,11 +367,12 @@ function pegarLocal() {
 
 function tocarLocal(retomar) {
   const l = pegarLocal(); if (!l) { tocarYTProximo(); return; }
+  window._tocandoMP3 = l;
   ytRetomar = !!retomar;
   tocandoLocal = true;
   try { ytPlayer.pauseVideo(); } catch(e){}
   localAudio.src = l.url;
-  try{ajustarVolumes();}catch(e){}
+  try{ localAudio.volume = mp3Eff(l); }catch(e){}
   const p = localAudio.play();
   if (p && p.catch) p.catch(()=>{ setStatus('⚠️ Celular bloqueou o áudio. Toque em ▶️ no player de baixo 1x pra liberar, depois aperta Próxima.'); log('⚠️ Autoplay bloqueado no celular — toque no player local.'); });
   setStatus(`🎙️ Tocando SUA música: <b>${l.nome}</b><br><small>YouTube pausado, volta sozinho.</small>`);
@@ -350,7 +387,7 @@ function tocarYT(id) {
   tocandoLocal = false;
   localAudio.pause();
   ytAtualPos = ytIds.indexOf(id);
-  try { ytPlayer.loadVideoById(id); try{ajustarVolumes();}catch(e){} } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
+  try { ytPlayer.loadVideoById(id); try{ if(ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(ytEff(id)); }catch(e){} } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
   setStatus(`▶️ Tocando YouTube: <b>${id}</b> <small>(${ytAtualPos+1}/${ytIds.length})</small>`);
   renderYTList(); renderFila();
 }
