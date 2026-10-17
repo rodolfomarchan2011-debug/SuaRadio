@@ -109,6 +109,11 @@
     <div style="margin-top:8px">
       <label><input type="checkbox" id="autoDJ" checked> AutoDJ ligado (intercalar automático)</label>
     </div>
+    <div style="margin-top:6px">
+      <label><small>🎚️ Fade suave na troca: <span id="fadeVal">2</span>s</small></label>
+      <input type="range" id="fadeCfg" min="0" max="6" step="0.5" value="2" style="width:100%" oninput="setFade(this.value)">
+      <small>0 = transição seca (sem fade)</small>
+    </div>
     <div id="status" style="margin-top:8px">Parado. Aperte <b>Iniciar rádio</b>, não o play do vídeo.</div>
     </div>
     <div id="yt-player" style="margin-top:8px"></div>
@@ -242,7 +247,7 @@ function tocarYTPos(i, tent) {
 function onYTState(e) {
   // 0 = ended, 1 = playing, 2 = paused
   if (e.data === 1 && !tocandoLocal && ytAtualPos>=0 && ytIds[ytAtualPos]) {
-    try { if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(ytEff(ytIds[ytAtualPos])); } catch(_){}
+    if (!fadeIv) { try { if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(ytEff(ytIds[ytAtualPos])); } catch(_){} }
   }
   if (e.data === 0 && !tocandoLocal) {
     ytTocadosDesdeLocal++;
@@ -325,13 +330,77 @@ function ajustarVolumes() {
   const b = localStorage.getItem('sr_volY'); if(b) document.getElementById('volYT').value = b;
 } catch(e){} })();
 
+// ===== Fade suave (crossfade leve entre YT e suas músicas) =====
+let fadeMs = 2000;
+try { const f = localStorage.getItem('sr_fade'); if (f !== null) fadeMs = Math.round(parseFloat(f)*1000); } catch(e){}
+function setFade(seg){
+  fadeMs = Math.round(parseFloat(seg)*1000);
+  document.getElementById('fadeVal').textContent = seg;
+  try{ localStorage.setItem('sr_fade', seg); }catch(e){}
+}
+(function(){ try { const f = localStorage.getItem('sr_fade'); if (f !== null) { document.getElementById('fadeCfg').value = f; document.getElementById('fadeVal').textContent = f; } } catch(e){} })();
+
+let fadeIv = null, preFadeYT = false, preFadeLocal = false;
+function pararFade(){ if(fadeIv){ clearInterval(fadeIv); fadeIv = null; } }
+function volYAtual(){ try{ return (ytPlayer && ytPlayer.getVolume) ? ytPlayer.getVolume() : masterY(); }catch(e){ return masterY(); } }
+function fadeYT(para, ms, done){
+  pararFade();
+  if (ms <= 0) { try{ ytPlayer.setVolume(para); }catch(e){} if(done)done(); return; }
+  const ini = volYAtual(), t0 = Date.now();
+  fadeIv = setInterval(()=>{
+    const p = Math.min(1, (Date.now()-t0)/ms);
+    try{ ytPlayer.setVolume(Math.max(0, Math.min(100, ini + (para-ini)*p))); }catch(e){}
+    if (p >= 1) { pararFade(); if(done)done(); }
+  }, 40);
+}
+function fadeLocal(paraPct, ms, done){
+  pararFade();
+  if (ms <= 0) { try{ localAudio.volume = Math.max(0, Math.min(1, paraPct/100)); }catch(e){} if(done)done(); return; }
+  const ini = localAudio.volume*100, t0 = Date.now();
+  fadeIv = setInterval(()=>{
+    const p = Math.min(1, (Date.now()-t0)/ms);
+    try{ localAudio.volume = Math.max(0, Math.min(1, (ini + (paraPct-ini)*p)/100)); }catch(e){}
+    if (p >= 1) { pararFade(); if(done)done(); }
+  }, 40);
+}
+// Pré-fade: baixa o som no finalzinho da faixa que está acabando (evita corte seco)
+setInterval(()=>{
+  if (fadeMs <= 0) return;
+  if (fadeIv) return;
+  if (tocandoLocal) {
+    preFadeYT = false;
+    if (localAudio.duration && !localAudio.paused && !preFadeLocal) {
+      const rem = (localAudio.duration - localAudio.currentTime)*1000;
+      if (rem <= fadeMs && rem > 60) { preFadeLocal = true; fadeLocal(0, rem, null); }
+    }
+  } else {
+    preFadeLocal = false;
+    try {
+      if (ytPlayer && ytPlayer.getDuration && ytPlayer.getCurrentTime) {
+        const d = ytPlayer.getDuration(), c = ytPlayer.getCurrentTime();
+        if (d > 0 && c > 0 && !preFadeYT) {
+          const rem = (d - c)*1000;
+          if (rem <= fadeMs && rem > 120) { preFadeYT = true; fadeYT(0, rem, null); }
+        }
+      }
+    } catch(e){}
+  }
+}, 250);
+
 const localAudio = document.getElementById('localPlayer');
 let ytRetomar = false;
 function voltarYT() {
   tocandoLocal = false; ytTocadosDesdeLocal = 0; minCont = 0;
   if (ytRetomar) {
     ytRetomar = false;
-    try { ytPlayer.playVideo(); setStatus('▶️ Voltando de onde parou no YouTube...'); log('▶️ Retomando YouTube de onde parou.'); } catch(e){ tocarYTProximo(); }
+    try {
+      ytPlayer.playVideo();
+      const alvo = (ytAtualPos>=0 && ytIds[ytAtualPos]) ? ytEff(ytIds[ytAtualPos]) : masterY();
+      try{ ytPlayer.setVolume(0); }catch(e){}
+      preFadeYT = false;
+      setTimeout(()=>fadeYT(alvo, fadeMs, null), 250);
+      setStatus('▶️ Voltando de onde parou no YouTube...'); log('▶️ Retomando YouTube de onde parou.');
+    } catch(e){ tocarYTProximo(); }
     renderYTList(); renderFila(); return;
   }
   tocarYTProximo();
@@ -373,11 +442,25 @@ function tocarLocal(retomar) {
   window._tocandoMP3 = l;
   ytRetomar = !!retomar;
   tocandoLocal = true;
-  try { ytPlayer.pauseVideo(); } catch(e){}
-  localAudio.src = l.url;
-  try{ localAudio.volume = mp3Eff(l); }catch(e){}
-  const p = localAudio.play();
-  if (p && p.catch) p.catch(()=>{ setStatus('⚠️ Celular bloqueou o áudio. Toque em ▶️ no player de baixo 1x pra liberar, depois aperta Próxima.'); log('⚠️ Autoplay bloqueado no celular — toque no player local.'); });
+  preFadeLocal = false;
+  const ytTocando = (function(){ try{ return ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState() === 1; }catch(e){ return false; } })();
+  const go = () => {
+    try { ytPlayer.pauseVideo(); } catch(e){}
+    localAudio.src = l.url;
+    try { localAudio.volume = 0; } catch(e){}
+    const p = localAudio.play();
+    if (p && p.catch) p.catch(()=>{ setStatus('⚠️ Celular bloqueou o áudio. Toque em ▶️ no player de baixo 1x pra liberar, depois aperta Próxima.'); log('⚠️ Autoplay bloqueado no celular — toque no player local.'); });
+    if (fadeMs > 0) fadeLocal(mp3Eff(l)*100, fadeMs, null);
+    else { try{ localAudio.volume = mp3Eff(l); }catch(e){} }
+  };
+  if (fadeMs > 0 && ytTocando) {
+    preFadeYT = true;
+    fadeYT(0, fadeMs, ()=>{ try{ ytPlayer.pauseVideo(); }catch(e){} });
+    go();
+  } else {
+    try { ytPlayer.pauseVideo(); } catch(e){}
+    go();
+  }
   setStatus(`🎙️ Tocando SUA música: <b>${l.nome}</b><br><small>YouTube pausado, volta sozinho.</small>`);
   log(`🎙️ Intercalando: ${l.nome}`);
   renderYTList(); renderFila();
@@ -388,11 +471,25 @@ function tocarLocalAgora() { if(!todosLocais().length){alert('Adicione MP3 tempo
 function tocarYT(id) {
   if (!ytReady || !ytPlayer || !ytPlayer.loadVideoById) { setStatus('⏳ Player carregando, tentando de novo...'); setTimeout(()=>tocarYT(id), 1200); return; }
   tocandoLocal = false;
-  localAudio.pause();
-  ytAtualPos = ytIds.indexOf(id);
-  try { ytPlayer.loadVideoById(id); try{ if(ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(ytEff(id)); }catch(e){} } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
-  setStatus(`▶️ Tocando YouTube: <b>${id}</b> <small>(${ytAtualPos+1}/${ytIds.length})</small>`);
-  renderYTList(); renderFila();
+  preFadeYT = false;
+  const tinhaLocal = (localAudio.duration && !localAudio.paused);
+  const seguir = () => {
+    ytAtualPos = ytIds.indexOf(id);
+    try { ytPlayer.loadVideoById(id); } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
+    const alvo = ytEff(id);
+    if (fadeMs > 0) {
+      try{ ytPlayer.setVolume(0); }catch(e){}
+      setTimeout(()=>fadeYT(alvo, fadeMs, null), 400);
+    } else { try{ ytPlayer.setVolume(alvo); }catch(e){} }
+    setStatus(`▶️ Tocando YouTube: <b>${id}</b> <small>(${ytAtualPos+1}/${ytIds.length})</small>`);
+    renderYTList(); renderFila();
+  };
+  if (fadeMs > 0 && tinhaLocal) {
+    fadeLocal(0, fadeMs, ()=>{ localAudio.pause(); seguir(); });
+  } else {
+    localAudio.pause();
+    seguir();
+  }
 }
 function tocarYTProximo() {
   if (!ytIds.length) { setStatus('Adicione links do YouTube.'); return; }
