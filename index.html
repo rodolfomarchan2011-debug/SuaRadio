@@ -102,9 +102,8 @@
       <button class="green" onclick="iniciarRadio()">▶️ Iniciar rádio</button>
       <button class="sec" onclick="pausarTudo()">⏸️ Pausar</button>
       <button class="sec" onclick="proximo()">⏭️ Próxima</button>
-      <button onclick="tocarLocalAgora()">🎙️ Tocar minha música agora</button>
+      <button id="btnTocarAgora" onclick="tocarLocalAgora()">🎙️ Tocar minha música agora</button>
       <button class="sec" onclick="reconectarPlayer()">🔄 Reconectar YouTube</button>
-      <button class="sec" onclick="testar10s()">🧪 Testar vinheta em 10s</button>
     </div>
     <div style="margin-top:8px">
       <label><input type="checkbox" id="autoDJ" checked> AutoDJ ligado (intercalar automático)</label>
@@ -503,7 +502,39 @@ function tocarLocal(retomar) {
   log(`🎙️ Intercalando: ${l.nome}`);
   renderYTList(); renderFila();
 }
-function tocarLocalAgora() { if(!todosLocais().length){alert('Adicione MP3 temporário ou coloque MP3 na pasta musicas/.');return;} tocarLocal(true); }
+// ===== "Tocar minha música agora": clica e espera 10 segundos =====
+let contaLocalTimer = null, contaLocalSeg = 0;
+function pararContagem() {
+  if (contaLocalTimer) { clearInterval(contaLocalTimer); contaLocalTimer = null; }
+  contaLocalSeg = 0;
+  const btn = document.getElementById('btnTocarAgora');
+  if (btn) btn.textContent = '🎙️ Tocar minha música agora';
+}
+function tocarLocalAgora() {
+  if (contaLocalTimer) { pararContagem(); setStatus('⏹️ Contagem de 10s cancelada.'); log('⏹️ Contagem cancelada.'); return; }
+  if (!todosLocais().length) { alert('Adicione MP3 temporário ou coloque MP3 na pasta musicas/.'); return; }
+  if (!document.getElementById('autoDJ').checked) document.getElementById('autoDJ').checked = true;
+  const btn = document.getElementById('btnTocarAgora');
+  contaLocalSeg = 10;
+  const atualizar = () => {
+    if (btn) btn.textContent = `⏳ Toca em ${contaLocalSeg}s (clique p/ cancelar)`;
+    setStatus(`⏳ Sua música entra em <b>${contaLocalSeg}s</b>... deixe o som ligado. Clique de novo para cancelar.`);
+  };
+  atualizar();
+  log('⏳ Sua música entra em 10 segundos...');
+  contaLocalTimer = setInterval(() => {
+    contaLocalSeg--;
+    if (contaLocalSeg <= 0) {
+      clearInterval(contaLocalTimer); contaLocalTimer = null; contaLocalSeg = 0;
+      if (btn) btn.textContent = '🎙️ Tocar minha música agora';
+      log('🎙️ Contagem terminou: entrando com sua música.');
+      tocarLocal(true);
+      return;
+    }
+    atualizar();
+  }, 1000);
+}
+function testar10s() { tocarLocalAgora(); } // mesma regra: clicar e aguardar 10s
 
 // ===== Fluxo principal =====
 function tocarYT(id) {
@@ -558,16 +589,11 @@ function iniciarRadio(tent) {
   tocarYT(ytIds[ytIndex % ytIds.length]); ytIndex++;
   log('🚀 SuaRadio no ar (modo pessoal).');
 }
-function pausarTudo() { try{ytPlayer.pauseVideo();}catch(e){} localAudio.pause(); tocandoYT = false; renderYTList(); setStatus('⏸️ Pausado.'); }
+function pausarTudo() { pararContagem(); try{ytPlayer.pauseVideo();}catch(e){} localAudio.pause(); tocandoYT = false; renderYTList(); setStatus('⏸️ Pausado.'); }
 function proximo() {
+  pararContagem();
   if (tocandoLocal) { localAudio.pause(); tocandoLocal=false; ytTocadosDesdeLocal=0; ytRetomar=false; tocarYTProximo(); }
   else { ytTocadosDesdeLocal++; deveIntercalar() ? tocarLocal(false) : tocarYTProximo(); }
-}
-function testar10s() {
-  if (!todosLocais().length) { alert('Suba MP3 temporário ou coloque MP3 na pasta musicas/.'); return; }
-  log('🧪 Teste: sua gravação toca em 10s e volta de onde parou...');
-  setStatus('🧪 Teste em 10s... deixe o som ligado.');
-  setTimeout(()=>{ if (!document.getElementById('autoDJ').checked) document.getElementById('autoDJ').checked = true; tocarLocal(true); }, 10000);
 }
 function renderFila() {
   document.getElementById('fila').innerHTML =
