@@ -150,8 +150,15 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.ge
 function salvarLocal() {
   try {
     localStorage.setItem('sr_yt', document.getElementById('ytUrls').value);
+    localStorage.setItem('sr_ytquando', String(Date.now())); // marca quando a playlist foi salva
     localStorage.setItem('sr_n', document.getElementById('cfgCadaN').value);
     localStorage.setItem('sr_min', document.getElementById('cfgCadaMin').value);
+  } catch(e){}
+}
+function guardarPos() {
+  try {
+    localStorage.setItem('sr_ytpos', String(ytAtualPos));
+    localStorage.setItem('sr_ytidx', String(ytIndex));
   } catch(e){}
 }
 function carregarLocal() {
@@ -169,6 +176,7 @@ let ytPlayer = null, ytReady = false;
 let ytIds = [], ytIndex = 0, ytTocadosDesdeLocal = 0, ytAtualPos = -1;
 let locais = [], localIndex = 0;
 let tocandoLocal = false, timerMin = null, minCont = 0;
+let tocandoYT = false, ytInicial = null; // tocandoYT = está tocando YT agora; ytInicial = vídeo a abrir ao restaurar
 
 function log(msg) {
   const el = document.getElementById('log');
@@ -193,7 +201,7 @@ function criarPlayer(videoId) {
   ytReady = false;
   ytPlayer = new YT.Player('yt-player', {
     height: '100%', width: '100%',
-    videoId: videoId || 'K44oVjSPbbk',
+    videoId: videoId || ytInicial || 'K44oVjSPbbk',
     playerVars: { rel: 0, autoplay: 0 },
     events: {
       'onReady': () => { ytReady = true; log('✅ Player YouTube pronto. Pode apertar Iniciar.'); setStatus('✅ Player pronto. Aperte Iniciar rádio.'); try{ajustarVolumes();}catch(e){} },
@@ -202,30 +210,61 @@ function criarPlayer(videoId) {
     }
   });
 }
-function onYouTubeIframeAPIReady() { criarPlayer(ytIds[0] || 'K44oVjSPbbk'); }
+function onYouTubeIframeAPIReady() { criarPlayer(ytInicial || ytIds[0] || 'K44oVjSPbbk'); }
 function reconectarPlayer() {
   if (typeof YT === 'undefined' || !YT.Player) { log('⏳ API ainda baixando... aguarde 5s e tente de novo.'); setStatus('⏳ Baixando API do YouTube... aguarde.'); return; }
   log('🔄 Reconectando player...'); setStatus('🔄 Reconectando...');
-  criarPlayer(ytIds[0] || 'K44oVjSPbbk');
+  criarPlayer(ytInicial || ytIds[0] || 'K44oVjSPbbk');
 }
 setTimeout(()=>{ if(!ytReady) log('⚠️ Se player não conectou: desative AdBlock pra youtube.com e clique em 🔄 Reconectar.'); }, 8000);
 
 function carregarYT() {
   const linhas = document.getElementById('ytUrls').value.split('\n');
   ytIds = linhas.map(extrairID).filter(Boolean);
-  ytIndex = 0; ytTocadosDesdeLocal = 0; ytAtualPos = -1;
+  ytIndex = 0; ytTocadosDesdeLocal = 0; ytAtualPos = -1; tocandoYT = false;
   if (!ytIds.length) { alert('Cole ao menos 1 link válido do YouTube.'); return; }
-  salvarLocal();
+  ytInicial = null;
+  salvarLocal(); guardarPos();
   log(`✅ ${ytIds.length} vídeos carregados.`);
   renderYTList(); renderFila();
 }
 
+// ===== Restaura a ÚLTIMA playlist inserida ao abrir/recarregar a página =====
+function restaurarPlaylist() {
+  let raw = '';
+  try { raw = (localStorage.getItem('sr_yt') || '').trim(); } catch(e){ return false; }
+  if (!raw) return false;
+  ytIds = raw.split('\n').map(extrairID).filter(Boolean);
+  if (!ytIds.length) return false;
+  let pos = -1, idx = 0;
+  try { pos = parseInt(localStorage.getItem('sr_ytpos') ?? '-1', 10); } catch(e){}
+  try { idx = parseInt(localStorage.getItem('sr_ytidx') ?? '0', 10); } catch(e){}
+  ytAtualPos = (pos >= 0 && pos < ytIds.length) ? pos : -1;
+  ytIndex = (idx >= 0 && idx < ytIds.length) ? idx : 0;
+  tocandoYT = false;
+  ytInicial = (ytAtualPos >= 0) ? ytIds[ytAtualPos] : ytIds[0];
+  renderYTList(); renderFila();
+  const onde = ytAtualPos >= 0 ? `último: ${ytAtualPos+1}/${ytIds.length}` : 'começa do 1º';
+  log(`💾 Playlist restaurada: ${ytIds.length} vídeos (${onde}). Aperte ▶️ Iniciar rádio.`);
+  setStatus(`💾 Playlist de antes carregada (${ytIds.length} vídeos). Aperte <b>▶️ Iniciar rádio</b> para continuar.`);
+  return true;
+}
+
 function renderYTList() {
   const box = document.getElementById('ytList');
-  document.getElementById('ytCount').textContent = `${ytIds.length} vídeos na programação (vol salvo no navegador)`;
+  const quando = (function(){ try {
+    const t = parseInt(localStorage.getItem('sr_ytquando') || '0', 10);
+    return t ? new Date(t).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
+  } catch(e){ return ''; } })();
+  const prox = ytIds.length ? (ytIndex % ytIds.length) : -1;
+  document.getElementById('ytCount').textContent = ytIds.length
+    ? `${ytIds.length} vídeos na programação 💾 salva no navegador${quando ? ' em ' + quando : ''}`
+    : 'Nenhum vídeo ainda.';
   box.innerHTML = ytIds.map((id,i)=>{
-    const ativo = (i === ytAtualPos && !tocandoLocal) ? 'tocando' : '';
-    const badge = (i === ytAtualPos && !tocandoLocal) ? '▶️ TOCANDO' : `${i+1}`;
+    const ativo = (i === ytAtualPos && !tocandoLocal && tocandoYT) ? 'tocando' : '';
+    const badge = (i === ytAtualPos && !tocandoLocal && tocandoYT) ? '▶️ TOCANDO'
+                : (i === prox && !tocandoYT) ? '⏭️ PRÓXIMO'
+                : `${i+1}`;
     const vv = ytVolMap[id]!==undefined?ytVolMap[id]:100;
     return `<div class="yt-item ${ativo}">
       <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" loading="lazy" onerror="this.style.opacity=.2" onclick="tocarYTPos(${i})" style="cursor:pointer">
@@ -400,6 +439,7 @@ function voltarYT() {
     ytRetomar = false;
     try {
       ytPlayer.playVideo();
+      tocandoYT = true;
       const alvo = (ytAtualPos>=0 && ytIds[ytAtualPos]) ? ytEff(ytIds[ytAtualPos]) : masterY();
       try{ ytPlayer.setVolume(0); }catch(e){}
       preFadeYT = false;
@@ -447,6 +487,7 @@ function tocarLocal(retomar) {
   window._tocandoMP3 = l;
   ytRetomar = !!retomar;
   tocandoLocal = true;
+  tocandoYT = false;
   const ytTocando = (function(){ try{ return ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState() === 1; }catch(e){ return false; } })();
   if (fadeMs > 0 && ytTocando) {
     preFadeYT = true;
@@ -471,6 +512,8 @@ function tocarYT(id) {
   preFadeYT = false;
   localAudio.pause();
   ytAtualPos = ytIds.indexOf(id);
+  tocandoYT = true;
+  guardarPos();
   try { ytPlayer.loadVideoById(id); } catch(e){ setStatus('❌ Erro ao tocar. Use o .bat (localhost).'); return; }
   const alvo = ytEff(id);
   if (fadeMs > 0) { try{ ytPlayer.setVolume(0); }catch(e){} setTimeout(()=>fadeYT(alvo, fadeMs, null), 400); }
@@ -481,6 +524,7 @@ function tocarYT(id) {
 function tocarYTProximo() {
   if (!ytIds.length) { setStatus('Adicione links do YouTube.'); return; }
   const id = ytIds[ytIndex % ytIds.length]; ytIndex++;
+  guardarPos();
   tocarYT(id);
 }
 function iniciarRadio(tent) {
@@ -514,7 +558,7 @@ function iniciarRadio(tent) {
   tocarYT(ytIds[ytIndex % ytIds.length]); ytIndex++;
   log('🚀 SuaRadio no ar (modo pessoal).');
 }
-function pausarTudo() { try{ytPlayer.pauseVideo();}catch(e){} localAudio.pause(); setStatus('⏸️ Pausado.'); }
+function pausarTudo() { try{ytPlayer.pauseVideo();}catch(e){} localAudio.pause(); tocandoYT = false; renderYTList(); setStatus('⏸️ Pausado.'); }
 function proximo() {
   if (tocandoLocal) { localAudio.pause(); tocandoLocal=false; ytTocadosDesdeLocal=0; ytRetomar=false; tocarYTProximo(); }
   else { ytTocadosDesdeLocal++; deveIntercalar() ? tocarLocal(false) : tocarYTProximo(); }
@@ -531,6 +575,9 @@ function renderFila() {
     `<span class="pill local">Online: ${onlineLocais.length} + Temp: ${locais.length} = ${todosLocais().length}</span> ` +
     `<span class="pill">${tocandoLocal ? '🎙️ TOCANDO MP3' : '▶️ YOUTUBE'}</span>`;
 }
+
+// ===== Ao abrir/recarregar: volta a última playlist e a posição de onde parou =====
+try { restaurarPlaylist(); } catch(e){ console.warn('restaurarPlaylist falhou:', e); }
 
 // ===== FIM - sem TTS, áudio pronto via pasta musicas/ ou upload temporário =====
 </script>
